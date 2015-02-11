@@ -467,7 +467,10 @@ To get the pulled selection rectangle to display correctly, it was necessary to 
 
 There is still a problem with the setting of the scales when zooming and unzooming.  Only the left vertical scale gets reset.  The horizontal scales may be giggled a bit but do not really change.  Also, simply left mouse clicking on the plot causes both left and bottom scale tickmarks and ticklables to disappear.
 
+These problems were eventually addressed although I don't seem to have made any further notes.  Sorry about that.
 
+Current code works although there are several compiler warnings.  The redraw speed of the plot is sufficient to handle live data with the plot being redrawn several times per second as data comes in.
+  
 
 
 
