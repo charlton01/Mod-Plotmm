@@ -1,0 +1,478 @@
+Notes on my progress in understanding plotmm and its conversion to gtkmm-3.0.
+
+The biggest problem as I see it is that the gdk::GC (GraphicsContext) is gone and all graphics have now been moved to Cairo.  In our case, we want to use cairomm.  Good notes on the use of gtkmm, including use of cairomm, can be found in:
+http://developer.gnome.org/gtkmm-tutorial/3.2/gtkmm-tutorial.html#chapter-drawingarea
+
+Our use of Plotmm starts with the declaration of an instance (object) of the class DrumPlot (see DrumPlot.h). DrumPlot includes PlotMM::Plot as a member, called m_plot.  m_plot is packed into m_box1 (Gtk::HBox), which, in turn, is packed into DrumPlot (which is of type Gtk::Box).
+
+DrumPlot initializes the m_plot object by making calls to:
+m_plot.signal_plot_mouse_press()
+m_plot.signal_plot_mouse_release()
+m_plot.signal_plot_mouse_move()
+m_plot.scale()
+m_plot.title()
+m_plot.label() 
+
+Also included in DrumPlot are Glib::RefPtr<PlotMM::Curve> variables as members.  The Curve members are instantiated in DrumPlot.cc and calls to subclasses of Curve include:
+myCurvexx->paint()
+myCurvexx->set_enabled()
+myCurvexx->symbol()
+myCurvexx->set_curve_style()
+
+The curve data is sent to the Curves with myCurvexx->set_data() and m_plot.add_curve() is used to add the curves to m_plot.  Adding curves to the plot is tricky.  There is a std::map (plotDict)(sort of like a hash table) of CurveInfo structs and sequential numerical index keys pointing to them.  The structs contains a PlotMM::Curve pointer and two PlotAxisIDs for x and y axes.
+
+In the plotting calls, m_plot.replot() is called to plot the whole thing.  replot() interates through the entries in plotDict, plots a bounding rectangle for each, then plots the curve with :
+cv->second.curve->draw(canvas_.get_window(), .......). canvas_ is a Gtk::DrawingArea and in the original code, canvas_.get_window() returned a Gdk::Drawable pointer.  That was taken by PlotMM::Curve::draw() to draw into that widget.  But note that Gdk::Drawable is now gone and the canvas_.get_window() now returns a Gdk::Window.  So things will have to change under gtkmm-3.0.  Also the graphics drawing must be converted to Cairomm from the Gtk:GC used previously.
+
+I started by trying to compile Plotmm using gtkmm-3.0.  At each compiler error, I edited the code.  But it soon became apparent that I needed an overall plan for the graphics environment.  What follows is the beginnings of that plan.
+
+Using Cairo graphics means doing all of the drawing to a Cairo Context.  The gtkmm example code suggests using something like:
+
+Gtk::DrawingArea myArea;
+Cairo::RefPtr<Cairo::Context> myContext = myArea.get_window()->create_cairo_context();
+myContext->set_source_rgb(1.0, 0.0, 0.0);  // set foreground color to red
+myContext->set_line_width(2.0);  // set line width
+
+Then the cairo is drawn to (stroke(), paint(), etc.), the myArea is added to a widget (perhaps a window) that is then shown.
+
+   Gtk::Window win;
+   win.set_title("DrawingArea");
+
+   MyArea area;
+   win.add(area);
+   area.show();
+
+(see the example code for full source).
+
+From the plotmm package we see that PlotMM::Plot has a member canvas_ of type PlotMM::PlotCanvas which inherits from Gtk::DrawingArea.  Therefore, we can consider our canvas_ equivalent to the myArea above.  The on_realize() method of PlotCanvas (invoked when canvas_ is instantiated) creates gc_ which was a Glib::RefPtr<Gtk::GC>, but now we want that to be a Glib::RefPtr<Cairo::Context>.  Thus, I changed the type of gc_ to be a Cairo Context pointer and changed the on_realize() method to create window_ (= get_window()) and gc_ (= window_->create_cairo_context()).
+
+Having created gc_ as a cairo context, we now must change all the rest of the library to draw into the cairo context instead of the former Gtk::GC.   I started by compiling plot.cc which includes plot.h.  In plot.h I changed the include paths from #include <plotmm/xxxx.h> to #include "xxxx.h" so that the compiler looks in the same directory for the includes.  I also added the cairomm includes:
+
+#include <cairomm/context.h>
+#include <cairomm/fontoptions.h>
+#include <cairo/cairo.h>
+
+I changed the definition of GC thus:
+	//Glib::RefPtr<Gdk::GC> gc_;
+	Cairo::RefPtr<Cairo::Context> gc_;
+at lines 57 and 94.
+
+In plot.cc, as mentioned above, at line 39, I changed:
+  window_= get_window();
+  gc_ = Gdk::GC::create(window_);
+  buffer_= Gdk::Pixmap::create(window_,1,1,-1);
+
+to
+
+  window_= get_window();
+//  gc_ = Gdk::GC::create(window_);
+// gc_ is now a Cairo::Context.  Associate it with the Gdk::Window (Gdk::Drawable is gone)
+  gc_ = window_->create_cairo_context();
+ // buffer_= Gdk::Pixmap::create(window_,1,1,-1);
+ //  Gdk::Pixmap is now gone from gdkmm, replace by Gdk::Pixbuf
+ // Not sure we need a pixbuf (Pixmap is gone).  I think we can draw into Pango::Context
+ buffer_ = Gdk::Pixbuf::create(Gdk::COLORSPACE_RGB, false, 8, -1, -1);
+  //Gdk::Cairo::set_source_pixbuf(gc_, buffer_, 0.0, 0.0);
+
+Using Gdk::Window requires #include <gtkmm/windows.h>
+
+That last comment line is just a reminder of how to copy a buffer into a Cairo Context in case I need it later.  I am not sure that I need that pixbuf.  Note that the original Pixmap is gone from Gdk::.
+
+At around line 83 and 105 I changed:
+    int winx, winy, winw, winh, wind;
+    window_->get_geometry(winx, winy, winw, winh, wind);
+to
+    int winx, winy, winw, winh, wind;
+ //   window_->get_geometry(winx, winy, winw, winh, wind);
+    window_->get_geometry(winx, winy, winw, winh);
+and at around line 92 I changed:
+    window_->draw_drawable(gc_, buffer_, 0, 0, (winw-layw)/2, (winh-layh)/2);
+    // window_->draw_layout(gc_,(winw-layw)/2, 0,layout_);
+    return true;
+to
+    //window_->draw_drawable(gc_, buffer_, 0, 0, (winw-layw)/2, (winh-layh)/2);
+    // window_->draw_layout(gc_,(winw-layw)/2, 0,layout_); // This was commented in original
+
+    // put the Pango::Layout directly into the Cairo::Context
+    layout_->add_to_cairo_context 	( 	gc_	);
+    return true;
+
+I am not sure what the Window methods draw_drawable and draw_layout did (they are gone in gtkmm-3.0) but I am guessing that adding the layout to the Cairo Context will do the job.
+
+ At lines 111 and 112 there are calls to get the color of a Widget.  I cannot find equivalent calls to get the current color of a widget... so I just commented out these calls and added:
+
+//    Gdk::Color bg= widget_->get_style()->get_bg(state);
+ //   Gdk::Color fg= widget_->get_style()->get_fg(state);
+    Gdk::Color bg = = Gdk::Color("white");
+    Gdk::Color fg = Gdk::Color("black");
+
+The lines at 113 and 114
+    buffer_= Gdk::Pixmap::create(window_,layw,layh,-1);
+    buffer_->draw_layout(gc_,0, 0,layout_,fg,bg);
+
+ cause a problem as there is no longer a Pixmap. So this is replaced with:
+     buffer_= Gdk::Pixbuf::create(window_,1,1,-1, -1); 
+
+The draw_layout is commented out as I have no idea what it does, and it no longer exists.
+
+On the following lines, the rotate_right and rotate_left functions were replaced with
+
+ Glib::RefPtr<Gdk::Pixbuf> o = p->rotate_simple ((Gdk::PixbufRotation) 90);
+    return o;
+
+(-90 for rotate left).
+
+In the constructor for PlotCanvas, the color routines were replaced with
+
+  Gdk::RGBA m_Color;
+
+  black_ = Gdk::Color("black");
+  white_ = Gdk::Color("white");
+  grey_ = Gdk::Color("red");
+  m_Color.set_red(0.0);
+  m_Color.set_green(0.0);
+  m_Color.set_blue(1.0);
+  m_Color.set_alpha(1.0); //opaque
+
+  override_background_color(m_Color);
+
+Colormap no longer exists.
+
+The PlotCanvas::on_realize() call was replaced with:
+
+  // We need to call the base on_realize()
+  Gtk::DrawingArea::on_realize();
+
+  // Now we can allocate any additional resources we need
+  window_= get_window();
+
+  // gc_ = Gdk::GC::create(window_);
+  //  We are using a cairo context, not a GC
+    gc_ = window_->create_cairo_context();
+
+  //window_->set_background(grey_);
+  //  I don't think we need to clear the window; done automatically
+ // window_->clear();
+
+The PlotCanvas::clear() method was commented out to just return.
+
+In the Plot::Plot() constructor second canvas_.signal_expose_event.connect.... was commented out as it no loner exists and I have no idea what to do.  I am hoping that this is now all automated.
+
+In the replot() method, the compiler complains that there is no is_visible so the first line was commented out.
+
+
+That brings us to the very last method draw_selection().  Here we have paint declared as an instance of the Paint class, which is defined in paint.h and its constructor in paint.cc.  Thus it is now time to shift our attention to compiling those files.
+
+The class Paint:: is a subclass of PlotMM::ObjectBase and is defined in compat.h as sigc::trackable.  ObjectBase is typedefined to SigC:ObjectBase, which no longer exists.  So the typedef for ObjectBase was changed to sigc::trackable as well.
+
+There are two members of Paint:: called pen and brush.  These are of type GC refptrs so they have been changed to pointers to Cairo contexts. 
+
+	//Glib::RefPtr<Gdk::GC> pen(const Glib::RefPtr<Gdk::Drawable> &) const;
+	//Glib::RefPtr<Gdk::GC> brush(const Glib::RefPtr<Gdk::Drawable> &) const;
+	Cairo::RefPtr<Cairo::Context> pen(const Glib::RefPtr<Gdk::Drawable> &) const;
+	Cairo::RefPtr<Cairo::Context> brush(const Glib::RefPtr<Gdk::Drawable> &) const;
+
+But then...   Gdk::Drawable is also gone and it gets complicated.  I checked DrumPlot.cc and I see that myCurve1->paint() and symbol->paint() are the only calls to paint().  Those calls return a pointer to a new Paint:: object.  From that, are called set_pen_color() and set_brush color() (E.g. myCurve1->paint()->set_pen_color()).  So the only use for "Paint" is to set the pen and brush color for specific objects.  It seems to me that the pen and brush color can be set directly for the cairo context associated with the object.  So I am going to try that.  This requires commenting out all references to Paint or paint() and later writing new code for set color. The call to set an opaque color for all subsequent drawing in a cairo context is:
+
+void Cairo::Context::set_source_rgb(double red, double green, double blue);
+
+Even before completing the editing of Plot.cc and Plot.h, I am finding that there are many references to Gdk::Drawable throughout the code.  Since Gdk::Drawable is gone and been incorporated into Gdk::Window, I am changing it to Gdk::Window (also #include <gtkmm/window.h>).
+
+After doing that, and correcting a couple of things that I can no longer remember(!), plot.cc was able to compile with warnings... but no errors.
+
+I tried again to compile paint.cc (with paint.h).  Changes similar to those encountered in plot.cc were necessary.  I had to change Gdk::Color to Gdk::RGBA, and I used gc->set_source_rgba(1, pColor_.get_red(), pColor_.get_green(), pColor_.get_blue());
+ to set the cairo color.  
+It finally did compile.  
+
+In curve.cc painter is a Gdk::Window.  So the instructions like:
+painter->draw_lines(paint()->pen(painter), polyline);
+have to be transformed to:
+paint()->pen(painter)->line_to(xi,yi);
+for each point after a similar move_to() for the initial point.  As far as I know there is no polyline draw_line function in cairo.
+
+After editing all of the code to use cairomm calls, everything compiled with a few warnings.
+
+In plotting a curve, it starts in replot(), goes to curve.draw(), which goes to draw_curve_(), to draw_lines_() (or whatever), ... which uses paint()->pen() to return a cairo::context pointer to a cairo context with the color set.  This really seems overly complex... but whatever...
+
+The replot() method calls begin_plot() and ends with end_plot().  These methods caused the Gdk::Window to create a backing-store for the graphics and diverted drawing to the window to the backing-store.  At the end of replot, the backing store was restored to the window to show the image.  These are not really necessary with cairo which seems to handle this by itself.
+
+One of the nagging problems is that replot seems to branch to the curve drawing OK but the image is wiped at the end.  Various factors seem to affect this... but the scaling routines seem to be the culprit.  Actually, autoscale is what does it.  I just tuned it off for the time being.
+
+The plotting data is transferred to the Curve object and stored in vectors x_ and y_ using set_data().  These values are accessed using the accessor x() and y().
+
+The scaling to screen coordinates from x and y coordinates uses DoubleIntMap.  This object does the transform from double to int and scales to the proper value.  The parameters in the DoubleIntMap that does the transform of coordinates to screen coordinates are set by set_range() method; e.g. 
+m_plot.scale(PlotMM::AXIS_BOTTOM)->set_range(0, 100, false);
+(true for log scale).
+At least, this sets the max and min for the coordinate range.  The screen coordinate range must be set somewhere??  Actually, set_range() sets the range in Scale::scaleMap_, which is a DoubleIntMap using set_dbl_range().  The screen coordinates are set with set_int_range() in VScale::redraw() or HScale::redraw(). So it is important that the VScale and HScale objects have the proper size to correspond to the width and height of the plotting area (canvas_).  Two paragraphs below, I describe how the plot object frame is mapped, using a table, to the contained widgets.  In the constructor for Plot objects the tickMarks[] vector is populated with New() instances of HScale and Vscale objects and positioned in the table so that they go along the bottom and left side of the canvas.  They should have the same width (for HScale) and height (for VScale) as the canvas_.  So the set_int_range() that sets the integer range for the DoubleIntMap, should set it properly from those values.  On the other hand, I see no reason why this has to be accepted and the int values could have been set like the doubles were in Plot::replot.  But whatever....
+
+I am starting to understand how the various components of the plot window are mapped.  In Plot:: there is a data member Gtk::Table layout_.  The various DrawingArea widgets of the window are placed in various elements of the table when the Plot:: object is instantiated.  When the scales, titles, plot labels and plots are drawn, they must draw into the widget that exists within each table element.  Up until now, I have just been creating a cairo context without much care about which window I am using to create the cairo context.  I have to make sure that I am using the correct widget to create the context.
+
+The Plot:: object which is a sub-class of Gtk::Frame has a member called layout_, which is a 9x7 Gtk::Table.  Within that table are attached 14 Gtk::DrawingArea widgets, one of which is the plot canvas_  which is in the dead center cell.  In other areas are the Title, ScaleLabels, AxisLables and Ticklabels.  Each of these is a Gtk::DrawingArea sub-class and when drawing in these widgets you have to use the correct cairo context for the Gdk::Window for that widget.
+
+Be careful though.  Data member name "layout_" is used in most of the objects (as well as in Plot::) to specify different things.  Do not confuse them.
+
+since Plot::canvas_ is the place for the curve to be drawn, it must be passed to Curve::draw(), which happens in Plot::replot().  Curve::draw() calls the passed Gdk::Window "painter".  This is then passed to draw_cruve_() and from there to draw_lines_().  Actually, this Gdk::Window variable "painter" is not really needed.  One can use get_window() within draw_lines_() to get the Gdk::Window pointer.  I like that better.
+
+I have found a problem in HScale and Vsale when the tickAxes are declared.  The bottom and left axis dimensions are bigger than the canvas_ size when it is measured in draw_lines_().  Hmmmmm.??  If I enlarge the window and replot the curve, the canvas_ size gets bigger but the HScale and VScale redraw() methods are not activated to reset the size of the tickMarks widgets.  Hmmmm....  Both of these symptoms may be because the signal to rebuild the tickMark widgets when the canvas_ changes size... does not get through.
+
+If I set autoscale to true for both the bottom and top axes as in:
+m_plot.scale(PlotMM::AXIS_BOTTOM)->set_autoscale(true);
+m_plot.scale(PlotMM::AXIS_LEFT)->set_autoscale(true);
+then the curve plots correctly, even when the Window resizes, as HScale::redraw() and VScale::redraw() are called by set_range() that is called by autoscale(). There is no dependence on an event to trigger the redraw().  Mind you, the scale is not drawn and displayed... but that is another problem to deal with later.  Actually,  redraw() is not necessary.  set_range() is the key.  In fact...  set_int_range() is the key call that needs to be called when the canvas is resized ... or just before replot().  And... shoot... redraw() makes that call... so redraw can be the call that is needed.  So how do I get the Scale::redraw() to be called when the tickMark[xaxis] (a Scale object) is put into the layout_ table in Plot::, and has its Gdk::Window change size?  In the original code, there was an on_expose_event() signal call that called redraw.  It says in the gtkmm-3.0 tutorial that this has been replace by the on_draw() method.  Since the original on_expose_event() was declared virtual in Scale:: this function should be changed to on_draw() in both Scale, HScale and VScale. Put in a Scale::on_draw() method so that redraw() can be called from it.  Not tried yet.  on_draw() should be added *only* to the DrawingArea widgets.
+
+I started by changing on_expose_event() to on_draw() in plot.h and plot.cc. Also changing the on_expose_event() calls in scale.h and scale.cc to on_draw() calls. Made no change.  Hmmmmm.
+
+OK.  I think I finally figured it out.  The on_draw() function is really on_draw(const Cairo::RefPtr<Cairo::Context>& cr), so it actually passes back a cairo context.  If there is any drawing to do subsequent to the on_draw() event... you must do it in that context (within the on_draw() method).  If nothing is drawn before the on_draw() method exits,  it will paint the context to the background colour and leave the DrawingArea blank.  so any drawing MUST be done within the on_draw() method.
+
+SInce we need something that will trigger a redraw or replot when the window is uncovered or resized etc., then we pretty well have to use on_draw().  Not that a hide();show_all(); will trigger an on_draw().
+
+Here is another useful fact.  If you use on_realize() on the DrawingArea widget and then get the Gdk::Window pointer with get_window() and finally the cario::Context pointer using create_cairo_context(), this pointer has the same address as the one returned from on_draw().
+
+Other widgets in the plot area must use on_draw() to get their cairo context and redraw thenselves when necessary.
+
+The one thing that is bothersome is the Scale.scaleMap which is the DoubleIntMap that Curve.draw() uses to calculate the screen coordinates from the input coordinates.  If Scale.redraw() is not called by its on_draw() signal before the canvas_->on_draw() tells the Curve to replot its lines etc., then things will get screwed up.  I am not sure how this was avoided in the original code.  Actually, the Scale.redraw() can be called in Scale.on_realise() to do this.  But I am still having problems with VScale and HScale not getting the correct Gdk::Window.  Not sure why.  get_window() in Scale methods seems to return the PlotCanvas window dimension for height and width.  This has to be fixed.  
+
+The Curve drawing that is triggered by PlotCanvas.on_draw(), which calls Plot.replot() (see how I did this below), rquires that the Scale.redraw()s be called first.  Putting the Scale.redraw() in the Scale.on_realise() should do this.
+
+Hmmmm.... When I put on_draw() events on HScale and VScale, they were not triggered when Plot::on_draw() and PlotCanvas::on_draw() triggerred.  I assumed that they would be as they are widgets attached to the Table in the PlotCanvas.  Hmmmm....  So now I have to call those objects redraw() (and the ScaleLabels::update_()) from the on_draw event of the PlotCanvas.  Perhaps I stopped the signal from propagating.  No.  Not the problem.  This observation was later called into question when I ran the cairo_test code.  There, all DrawingArea widgets in a Table get the on_draw() signal.  I am still struggling with this problem.
+
+I have been struggling with the creation of the Cairo::RefPtr<Cairo::Context> pointer that occurs with the on_draw() signal method.  I try to capture the pointer but it always seems to revert to its previous value after the cairo on_draw() event.  I think what is happening is that on_draw() resets the pointer to some default context after the exit from on_draw().  It is not useful for anything that I can see.  Anyway....  I can't persist the pointer past the  on_draw() event.  Not only does the on_draw() method reset its Context pointer to some default Context after the method exits. The actual pointer is changed.... and the context that the pointer is pointing to, changes.  And it does not change back to the context that existed before the on_draw().  It is changed to a new context.
+
+So, overall, this is what I think happens.  The object is realized and the on_realize() method can be used to create and set a Cairo::Context pointer.  on_draw() will be triggered and creates a new context.  You can set the object Context pointer, previously set in on_realize(), to point to the new Context created by on_draw(). You can use the new on_draw() Context pointer until the end of the on_draw method at which time it will be reverted to some other generic pointer.  I think it is a real pointer, but it is not attached to the Gdk::Window of the original DrawingArea.  So basically, it is destroyed. 
+
+I can branch out of the on_draw routine, create a new Cairo::Context with Gdk::Window.create_cairo_context(), draw into it, return to the on_draw() and have it return (reach last brace) without the image drawn into the secondary context being destroyed.
+
+To reiterate.  Every Gtk::DrawingArea must have an on_draw() method overloaded to redraw the contents of that widget.  You cannot place other widgets into the DrawingArea(s).  You do not have to use the Cairo::Context pointer provided by on_draw().  You can use Gtk::Window.create_cairo_context()... but it has to be within the on_draw() method or in a method called by that on_draw().
+
+In the cairo_test codeblocks code, one can see that I have been able to create a Frame, put into it a Box (with Box::add()), add a Table to the Box (here you must use pack_start) and then attach two DrawingArea widgets into the elements of the table.  Put an on_draw() method into each of the DrawingArea widgets to redraw their contents when needed.  Works fine.
+
+The one thing that I have not tested is subclasses of DrawingAreas.  I assume that the super class must have a virtual on_draw() and the sub classes also have an on_draw.  Will check using the cairo_test code.  Yes, that works.  Just put nothing in the defined super class on_draw().  But, it also seems to work fine if I do not put an on_draw() in the DrawingArea super class and only put it into the DrawingArea sub classes.
+
+Now the question that arises is how to vountarily trigger a redraw of the plot window and all of its children, including DrawingArea widgets with their on_draw() methods.  As it turned out, this was easy, just hide() and then show_all() the upper level widget that holds the rest.  This triggers the on_draw for the appropriate children.  In the end, this was not needed as replot() is called from the on_draw() (see below).
+
+In the graphics library... all of the data regarding the curve is kept in the Plot oject which is a Frame.  The underlying DrawingArea objects, like the PlotCanvas, are members of the plot class.  But only those objects get the on_draw() signal and drawing must be done from the on_draw method.  I need to be able to access the Plot object data in methods from the PlotCanvas etc.  I am planning on passing a pointer from the Plot object to the contained DrawingArea objects by creating the pointer in the constructor for the Plot objects.
+
+In the cairo_test code I proved that it is possible to declare a Frame (F) pointer in the DrawingArea (DA) class and then in the DA class constructor pass an argument of type F*.  In the F class, declare an object of the DA class and in the initialization list of the F class, initialize the F pointer of the DR class object to "this".  Now you can put the F object replot method into the on_draw() method of the DR object with F*->replot().  Complicated, but it will probably save a lot of editing to the graphics library code plotmm.  
+
+I need to revisit the problem of HScale and VScale apparently not having the correct vertical and horizontal dimensions for their Gdk::Windows.  In the redraw() method invoked from on_realize() the four Scales (right and left VScale and top and bottom HScale) objects seem to be positioned correctly, have a one pixel width (for VScale) and height (for HScale) but the height of the VScale is that of the Plot widget not the PlotCanvas widget.  And the width of the HScale is that of the Plot widget... not the PlotCanvas Widget.  Hmmmmm.  Previously, setting autoscale fixed this.  But now, even that does not fix it!.
+
+The tickMark[2]->get_window() dimensions are correct when I check it in replot.  Maybe the dimensions of the windows have not been set when HScale and VScale are created (on_realise).  So their redraw() methods need to be called later. 
+
+Noteably, if I start the sample program and then click replot, the tickMarks do draw!  
+
+Now I have to figure out why there is no on_draw() triggered for the Vscale and HScale.
+
+Ahhhh.  The problem was self induced.  On overriding the on_draw() function, I declared it as
+virtual bool on_draw(Cairo::RefPtr<Cairo::Context> &cr);  instead of
+virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);.
+The same for the definition of the on_draw() methods in scale.cc.  Now, the on_draw() for each widget works. 
+
+The scale tickMarks are drawn but the tickLabels and AxisLabels are not drawn.  The tickLabels are drawn by the Scale oject on_draw which calls update.  I finally got the tickLabels to draw by adjusting how the Pango::Layout is embedded.  But the numbers all appear at the top, on top of each other.  Some further work is needed.
+
+Ticklabel[n]s (HScalelabels and VScalelabels objects that are/lead to the numbers next to the tickmarks) are passed to the constructor for HScale and VScale when making tickMark[]s.  These are then drawn with the tickmarks.
+
+There does not even seem to be a space displayed for the axisLabels, so they are not even being drawn.  axisLabel is a plotLabel object and is in plot.cc and plot.h.  The PlotLabel constructor has a Gtk::Widget* w as the first parameter.  This is a pointer to the Plot object that holds the data for the entire plot.  In the same way that the PlotCanvas needed a pointer back to its "owner" Plot object, the PlotLabel object needs access to the axislabels[] array in its "owner" Plot object.  This pointer is passed as the first parameter.  On further inspection, I do not see where that first pointer parameter is ever used except to get the system color settings.  So how/when are the axislabels drawn?  I guess everytime there is an on_draw event, enabled axisLabels are redrawn by the general on_draw procedure for all instances of that object.
+
+As to why some lables and scales seem to draw and others do not, newsize() does it!  That, in turn, calls requestsize(), which does a set_size_request(w,h) to set the minimum size of the widget (the DrawingArea).  For the PlotLabels, the set_request_size() call comes in PlotLabel::update_(), which gets the width and heighth from layout_->get_pixel_size(layw,layh), where layout_ is a Pango::Layout created in the constructor for PlotLabel.  Note that tainted_ is set to "true" in the constructor for the Plotlabel so that update_() is always run at the top of on_draw() the first time on_draw() is run.
+
+With respect to using a pango::Layout to render text.  If you rotate the cairo context before the     pangoLayout->show_in_cairo_context(cr); with cr->rotate_degrees(-90); then the text will appear rotated within the cairo context.  In the original code, the pango layout was written to a Pixmap in order to be able to roate the text.  But this is no longer required.  SO I have commented out the pixmap (later changed to Pixbuf) code and will now just calculate where to place the pango layout into the cairo context with, or without, roation of the context.
+
+Earlier, I noted that any cairo drawing to be done *must* be done from the on_draw() method and even the creation of the cairo context *must* be created within that method.  This is not true for pango layouts.  You can create these at any time and them add them to the created cairo context (show_in_cairo_context) in the on_draw() method.
+
+At this point... I have the PlotLabels (title, topaxis, bottomaxis, leftaxis and rightaxis) all working correctly.  Now to go back and get the scale numbers to work correctly.
+
+I finally got the scale numbers to work but the font style is in bold.  font_ is supposed to be the Pango::FontDescription but I do not see where it is set.  The problem is with how the pango is combined with the cairo context. To get the normal system fonts for the pango text, you must use layout_->show_in_cairo_context(cr) and not layout_->add_to_cairo_context(cr).
+
+Now all of the scales and labels display fine.  One small problem remains.  The ticklabels where I have not set the range are automatically set but they get screwed up a bit on resizing the window.  Probably need to do an update somewhere.
+
+The problem with the the redrawing of tickMark labels redrawing correctly is related to the set_range() method.  If set_range() is called for an axis *after* a Plot object is instantiated, the axis ticklabels display fine on resizing the window.  If set_range is not called, then the tickmark labels (the numbers) are not positioned correctly on resizing the window.
+
+Although set_range() sets up the DoubleIntMap, scaleMap_, this map is the same whether set_range is called in the Scale constructor or later (in Plot::replot() for example, which cures the problem).
+
+The thing that cures the improper redrawing of ticklabels is the call to window_->hide()/Window_->show() in the set_range call.  I just put scale(PlotMM::AXIS_BOTTOM)->hide() (for each axis) in Plot::replot() and that also cures the problem.  I think that the problem arises because the on_draw event for Scale happens after the on_draw for ScaleLabels.  The single call to Scale::hide() seems to reorder this.  Go figure.  This needs further work and the classes need to be disentangled so that they are not interdependent.  But for now....
+
+Fixed draw_lsteps_(),draw_dots() and draw_csteps(). and all other curve types as well as all of the symbol stuff.  Everything seems to work just fine now.
+
+Take note that anytime you set a color for the paint->brush it turns "filled" on for that object, be it a curve (usually fills under the curve) or a symbol (fills it in).
+
+The problem of the ordering of the on_draw() events and the calculation of the DoubleIntMaps needed by the curves, the tickmarks and the ticklabels is best addressed now.  The problem that exists is that the resizing of the Plot:: window causes the enclosed table to resize and this resizes all of the elements in the table.  The DoubleIntMap has the scaling factor for the conversion of the range of x and y (double) values to the screen coordinates of the PlotCanvas and must be recreated after every resize.  But the DoubleIntMap is only recalculated within the redraw method of Scale (HScale and VScale).  The redraw() method of Scale (tickMarks) is called by the on_draw() method of Scale.  If the on_draw for the ticklabels is called before the on_draw of the Scale, then it will get the previously calculated DoubleIntMap from Scale before it is recalculated.  The current fix is to hide() the tickmarks.  This triggers an on_draw for everything and the second time things are drawn... everything looks fine.  The little flicker is not even noticeable but this solution is really a kludge!  For some reason doing a hide()/show() on the tickmarks in the main subroutine before replot is triggered, also permanently cures the problem.  Since a single call to hide/show is able to do this, it must reoder the sequence of calls to the ondraws for the various elements.  Note that the on_draw for the curve has to be triggered after the on_draw for the Scale as well.  But this never seems to be a problem.r
+
+A possible solution would be to have a reset_map() method in Plot:: so that each object that needs the map could call this method which woukd return the current map.  This would mean mean that each object would have to have a pointer back to Plot::.  It is the PlotCanvas (canvas_) that is owned by Plot:: that holds the data needed to calculate the map.  How can the other member classes in Plot::  get access to that data?
+
+The data member labels_ in ScaleLabels is defined "std::map<int,double> labels_;".  But the same name labels_ for a data member in Scale is defined "ScaleLabels *labels_;".  Talk about foolishness in variable naming!  When a tickmark object is instantiated (HScale or VScale) it is passed a pointer to the corresponding tickLabel object.  This is so that it can call the set_labels() method of the associated tickLabel and pass along the DoubleIntMap that holds the positions for printing the ticklabels.  This map is actually calculated within the update method of the VScale or HScale object.
+
+Another possible solution is to make the ticklables and the PlotCanvas classes inherit from something that can contain a Gdk::Window with a cairo context, but not be a subclass of DrawingArea.  They would then not get on_draw signals and could be drawn from the Plot or Scale object which has the map needed by those other classes.  Or, perhaps the on_draw signal to certain classes could be nullified and then the redrawing done manually from Scale.
+
+Adding add_events(Gdk::Eventmask 0); to the constructor of a drawing area does not stop the on_draw event handler.  Not sure how to stop this event. ( hide() the widget!!)
+
+Some investigation has shown that the order of the on_draw calls is dependent on the order that the DrawingArea objects are attached to the table used to hold them.  It might also be true for the order of add()ing or pack_start()ing such objects to the GUI.  But if this is generally true, then the problems with the Plotmm libraries can be solved by always attaching the Scale objects (tickMarks) to the table before the other objects.  This would obviate the need to trigger a second on_draw sequence to ensure that the maps set in the Scale update() method are valid when the the ticklabels and the curves are drawn.
+
+One could also manually draw the curves and tickLables after one is sure that the on_draw() for those things is over and won't wipe out what is manually drawn there.
+
+hide()ing a widget permanently hides the widget and cancels the on_draw() for that widget.  A subsequent show() for that widget, or a parent/container widget, triggers an on_draw() for that widget only (unless other container widgets have been hidden).
+
+I have decided to let sleeping dogs lie on the on_draw() stuff.  It seems to work.
+
+I fixed the error_curve material.  I note something interesting.  If I use the paint(painter)->pen() cairo context pointer, it does not seem to work.  But if I declare a local Cairo::RefPtr<Cairo::Context> pointer and set it equal to the paint(painter)->pem() pointer, then it seems to work fine.  I am not sure why this is.  But again, I am letting sleeping dogs lie.
+
+I need to fix the selection and zoom functionality.
+
+After a bit of work I got the print_coords() to work.  This is really not much to do with the plotmm library but just checking to make sure it works OK.
+
+The click-drag to show a selection of the graph does not work.  Something does happen but the plot is screwed up pretty badly.  Actually, checking again.  There is not selection rectangle drawn.  When the mouse button is realeased, the selected region is shown on the whole screen... that's good.  But right clicking does not give back the original plot.  Worst of all, there is no screen clearing.  Actually, if the plot is resized to cause an on_draw, the selected region and axes looks good.  Same for return to the original plot.  So what needs fixing.  A drag rectangle... and an extra on_draw after the mouse actions.
+
+The drag/selection rectangle drawing and undrawing is problematic.  To get a better handle on this, all of the associated routines were copied to the cairo_test project for testing.
+
+Understanding the mouse signals and events is difficult.  Even after reading the documentation and looking at the code from plotmm, I cannot quite see how the selection rectangle is pulled open to select a zoom rectangle.  This is such a common feature in so many programs that one would think that it would have simple code.  But it does not.
+
+Here are some of my observations on events and signalling.  In the cairo test code I have four levels of classes.  At the top is PlotTest (inherits from Gtk::Window).  It is my main window that is run from main().  PlotTest has a member, m_plot that is a Plot class instance.  The Plot class inherits from Gtk::Frame.  Plot objects have a member, an instance, myarea_2, of a class, Area_two that inherits from Gtk::DrawingArea. That is the setup.  For signals, Area_two (the DrawingArea class) has declarations:
+
+	sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_press;
+	sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_release;
+	sigc::signal3<void,int,int,GdkEventMotion*> signal_plot_mouse_move;
+
+Despite the look of these things, they are actually method declarations that generate an event/signal when they are called from the methods below.
+
+Area_two also has declarations for three methods:
+
+	virtual bool on_button_press_event(GdkEventButton* event);
+	virtual bool on_button_release_event(GdkEventButton* event);
+	virtual bool on_motion_notify_event (GdkEventMotion* event);
+
+These are methods that overload the DrawingArea methods of the same name.  They are later defined as:
+
+bool Area_two::on_button_press_event(GdkEventButton* event)
+{
+    int x,y;
+    get_pointer(x,y);
+    signal_plot_mouse_press(x,y,event);
+    return true;
+}
+
+bool Area_two::on_button_release_event(GdkEventButton* event)
+{
+    int x,y;
+    get_pointer(x,y);
+    signal_plot_mouse_release(x,y,event);
+    return true;
+}
+
+bool Area_two::on_motion_notify_event (GdkEventMotion* event)
+{
+    int x,y;
+    get_pointer(x,y);
+    signal_plot_mouse_move(x,y,event);
+    return true;
+}
+
+add_events() is used to add an event mask to Area_two to turn the mouse signals on.
+
+In other word, when the signal from the mouse comes to Area_two objects, it is intercepted and a new signal is generated with the mouse coordinates and the event number as parameters.  (I think).
+
+In the Plot class, The same signal functions are declared as in Area_two (but not the overloaded functions.
+).  So, Plot will get the same signals as those generated in Area_two.  But Plot also defines these functions.  All the defined functions do is return the signal generated by Area_two.  For example:
+
+//! Return the signal owned by Area_two
+sigc::signal3<void,int,int,GdkEventButton*> Plot::signal_plot_mouse_press()
+{
+    return myarea_2.signal_plot_mouse_press;
+}
+
+//! Return the signal owned by Area_two
+sigc::signal3<void,int,int,GdkEventButton*> Plot::signal_plot_mouse_release()
+{
+    return myarea_2.signal_plot_mouse_release;
+}
+
+//! Return the signal owned by Area_two
+sigc::signal3<void,int,int,GdkEventMotion*> Plot::signal_plot_mouse_move()
+{
+    return myarea_2.signal_plot_mouse_move;
+}
+
+Now we move to the next higher level, PlotTest.  In the PlotTest class are declared the methods:
+
+  void on_plot_mouse_press(int x,int y, GdkEventButton *ev);
+
+  void on_plot_mouse_release(int x,int y, GdkEventButton *ev);
+
+  void on_plot_mouse_move(int x,int y, GdkEventMotion *ev);
+
+These are then defined to do whatever we want to do on sensing the event.  They are connected to the signal coming from the Plot object with:
+
+  m_plot.signal_plot_mouse_press().
+    connect(sigc::mem_fun(*this,&PlotTest::on_plot_mouse_press));
+  m_plot.signal_plot_mouse_release().
+    connect(sigc::mem_fun(*this,&PlotTest::on_plot_mouse_release));
+  m_plot.signal_plot_mouse_move().
+    connect(sigc::mem_fun(*this,&PlotTest::on_plot_mouse_move));
+
+The methods, for instance on_plot_mouse_press(), act by calling methods in m_plot to draw into the Area_two object myarea_2.
+
+All of this seems overly complex but I guess it is designed to provide a signal from the DrawingArea object, that contains both the coordinates and the event number (button action), to the controlling PlotTest object.
+
+Anyway, to carry on, the PlotTest::on_plot_mouse_press() method first checks to see if the ev->button is >0 and <4 and then reduces it by 1.  Not sure why.  Then, if ev->button is 1
+
+	zoomRect_.set_rect(x,y,0,0);
+	m_plot.set_selection(zoomRect_);
+      	m_plot.enable_selection();
+
+set_selection(zoomRect_) goes to
+
+void Plot::set_selection(const Rectangle &r)
+{
+    if (draw_select_) draw_selection_();
+    select_= r;
+    if (draw_select_) draw_selection_();
+}
+
+draw_select_ is a flag and is initially set to false and is set to true by enable_selection().
+
+void Plot::enable_selection()
+{
+    if (draw_select_) return;
+    draw_select_= true;
+    set_selection(select_);
+}
+
+but one can see that enable_selection just loops back to set_selection(select_) so that either the rectangle is drawn immediately or it is drawn after the flag is set.
+
+I just checked the code and pressing the left button gives an ev_button value of 1 and there are two calls to draw_selection.  I have draw_selection() just replot the entire myarea_2 surface and then I draw the rectangle.  As the mouse moves the the on_plot_mous_move() method is called.
+
+  void PlotTest::on_plot_mouse_move(int x,int y, GdkEventMotion *ev)
+  {
+    zoomRect_.set_destination(x,y);
+    m_plot.set_selection(zoomRect_);
+  }
+
+This then changes the dimensions of the rectangle and calls for set_selection() to redraw it.  The draw_select_ flag is necessary to prevent the mouse move method from drawing the rectangle before the left button is pressed, and after it is released.
+
+When the left button is released, it triggers
+
+  void PlotTest::on_plot_mouse_release(int x,int y, GdkEventButton *ev)
+
+which I use to just rdraw the contents of myarea_2 to erase the rectangle. That method also resets the draw_select_ flag to false. In Plotmm, this is where the program sets autoscale to on, and selects the data within the frame to plot (zooms).
+
+Pressing the right button I have it simply also redraw the canvas.  In Plotmm this would reset everything and restore the original plot.
+
+The one thing that is different in my code, versus the original Plotmm code, is that in the Plotmm code, the rectangle was actually drawn as part of replot(), so the entire image was redrawn with the rectangle.  Somewhere in the comments, it also said that only the space occupied by the rectangle was redrawn... but I am not sure that happened.  I am also not sure that is worth while trying to figure out that code since I now have to use cairo and my method seems to work.
+
+Getting back to my version of Plotmm, I note that Plot::replot() just replots the curve and axes.  It does not generate a general on_draw signal.  Of course, it couldn't, as the PlotCanvas on_draw() calls replot() and we don't want to set up an infinite loop.  The problem is, plot_on_mouse_release() needs to erase the current plot and redraw the zoomed space.  I can put an m_plot.hide(); m_plot.show_all(); at the end of that method to trigger this.  Or I could have replot always clear the plotting area.   Hmmmm.  Does replot() cause the tickAxes and tickLabels to redraw??  Well, no.  It appears to only cause one VScale and one HScale to redraw.  Resizing the window properly cause all axes and the plot areato redraw.
+
+This is pretty screwed up.  I really need a way to cause a general on_draw() to happen without it becoming recursive.  The original code had a sequence of calls that redrew things as needed but the necessity to use on_draw() to do the drawing has changed all of that.  Previously the redraw routines had both reconfiguration and graphics drawing actions.  Now it would be nice to be able to separate these two and just redraw everything after any reset of configuration/curves/labels etc has occurred.
+
+Oh well...  Perhpas I can achieve something similar by calling hide()/showall() on the Plot Frame when I want a true redraw and then only use replot() when I want to change replot just the currently stored graphs.  This would mean having only the curve plotting code in replot and putting any other code in a spearate method.  There is only code to reset the scales in case of autoscaling, so I put that code into reset_autoscale().  Now, all calls to replot() must be replaced with reset_autoscale(); replot();.  But now I can put a hide/show_all call on the scales that get reset without the danger of a recursive loop.  The PlotCanvas on_draw() will now just call replot to redraw the curve only, as it should.
+
+To get the pulled selection rectangle to display correctly, it was necessary to not only call replot() to replot the curve, but it is also necessary to repaint the background each time the mouse moves in order to wipe out the previous rectangle.  To do this I painted the canvas_ a nice grey colourin Plot::replot().
+
+There is still a problem with the setting of the scales when zooming and unzooming.  Only the left vertical scale gets reset.  The horizontal scales may be giggled a bit but do not really change.  Also, simply left mouse clicking on the plot causes both left and bottom scale tickmarks and ticklables to disappear.
+
+
+
+
+
+
+
+
+
+

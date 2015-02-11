@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes" ?>
+<CodeBlocks_project_file>
+	<FileVersion major="1" minor="6" />
+	<Project>
+		<Option title="plotmm" />
+		<Option pch_mode="2" />
+		<Option compiler="gcc" />
+		<Build>
+			<Target title="Debug">
+				<Option output="bin/Debug/myprog" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Debug/" />
+				<Option type="1" />
+				<Option compiler="gcc" />
+				<Option use_console_runner="0" />
+				<Compiler>
+					<Add option="-g" />
+				</Compiler>
+			</Target>
+			<Target title="Release">
+				<Option output="bin/Release/plotmm" prefix_auto="1" extension_auto="1" />
+				<Option object_output="obj/Release/" />
+				<Option type="3" />
+				<Option compiler="gcc" />
+				<Compiler>
+					<Add option="-O2" />
+				</Compiler>
+				<Linker>
+					<Add option="-s" />
+				</Linker>
+			</Target>
+		</Build>
+		<Compiler>
+			<Add option="-Wall" />
+			<Add option="`pkg-config gtkmm-3.0 --cflags`" />
+			<Add option="-fPIC" />
+			<Add option="-p" />
+		</Compiler>
+		<Linker>
+			<Add option="`pkg-config gtkmm-3.0 --libs `" />
+			<Add option="-p" />
+		</Linker>
+		<Unit filename="compat.h" />
+		<Unit filename="curve.cc" />
+		<Unit filename="curve.h" />
+		<Unit filename="doubleintmap.cc" />
+		<Unit filename="doubleintmap.h" />
+		<Unit filename="doublerect.cc" />
+		<Unit filename="doublerect.h" />
+		<Unit filename="errorcurve.cc" />
+		<Unit filename="errorcurve.h" />
+		<Unit filename="main.cc" />
+		<Unit filename="paint-2.h" />
+		<Unit filename="paint.cc" />
+		<Unit filename="paint.h" />
+		<Unit filename="plot.cc" />
+		<Unit filename="plot.h" />
+		<Unit filename="rectangle.h" />
+		<Unit filename="scale.cc" />
+		<Unit filename="scale.h" />
+		<Unit filename="scalediv.cc" />
+		<Unit filename="scalediv.h" />
+		<Unit filename="supplemental.cc" />
+		<Unit filename="supplemental.h" />
+		<Unit filename="symbol.cc" />
+		<Unit filename="symbol.h" />
+		<Extensions>
+			<code_completion />
+			<debugger />
+		</Extensions>
+	</Project>
+</CodeBlocks_project_file>
