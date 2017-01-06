@@ -421,6 +421,7 @@ for(int i=0; i<300; i++)
     m_plot.canvas()->get_window()->get_geometry(winx, winy, winw, winh);
 //    printf("PlotCanvas window_ x, y, width and height are %d   %d   %d   %d\n", winx, winy, winw, winh);
     Cairo::RefPtr<Cairo::Context> gc_local;
+// create_cairo_context() (below) is now deprecated (Gtk 3.22).  Do not use in new code
     gc_local = m_plot.canvas()->get_window()->create_cairo_context();
 // Glib::RefPtr<Gdk::Pixbuf> pixbuf_ = Gdk::Pixbuf::create (m_plot.canvas()->get_window(), 0, 0, winw, winh);
 
