@@ -49,7 +49,7 @@ bool Paint::operator==(const Paint &) const
  *
  *  The pen is used to draw lines or outlines of objects
  */
-void Paint::set_pen_color(const Gdk::Color &c)
+void Paint::set_pen_color(const Gdk::RGBA &c)
 {
     pColor_= c;
 }
@@ -58,7 +58,7 @@ void Paint::set_pen_color(const Gdk::Color &c)
  *
  *  The pen is used to fill objects
  */
-void Paint::set_brush_color(const Gdk::Color &c)
+void Paint::set_brush_color(const Gdk::RGBA &c)
 {
     bColor_= c;
     filled_= true;

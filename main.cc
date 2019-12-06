@@ -28,6 +28,7 @@
 
 #include <gtkmm/window.h>
 #include <gtkmm/main.h>
+#include <gtkmm/eventbox.h>
 
 #include <iostream>
 
@@ -38,10 +39,10 @@ public:
   virtual ~PlotTest();
   void do_the_plot();
   void replot();
-  
+
     bool on_m_press(GdkEventButton*);
     bool on_m_release(GdkEventButton*);
-    bool on_m_move(GdkEventMotion*); 
+    bool on_m_move(GdkEventMotion*);
   //void on_plot_mouse_press(int x,int y, GdkEventButton *ev);
 
   //void on_plot_mouse_release(int x,int y, GdkEventButton *ev);
@@ -90,6 +91,7 @@ protected:
   bool button_[3];
   int mx_,my_;
   // Child widgets
+  Gtk::EventBox main_box;
   Gtk::Button m_Button_Draw, m_Button_Replot;
   Gtk::VBox m_box_top, m_box0, m_box1;
   //Gtk::Frame frame1;
@@ -126,10 +128,18 @@ PlotTest::PlotTest() :
   loop(0),
   m_Button_Draw("Draw Cairo Image"),
   m_Button_Replot("Call Replot")
- 
-{
 
-    add(m_box_top);
+{
+    add(main_box);
+    main_box.add_events(Gdk::EXPOSURE_MASK|
+	     Gdk::BUTTON_PRESS_MASK|
+	     Gdk::BUTTON_RELEASE_MASK|
+	     Gdk::POINTER_MOTION_MASK|
+	     Gdk::POINTER_MOTION_HINT_MASK|
+	     Gdk::ENTER_NOTIFY_MASK|
+	     Gdk::LEAVE_NOTIFY_MASK);
+
+    main_box.add(m_box_top);
 
 //  m_box1.pack_start(m_Button_Draw);
 //  m_box1.pack_start(m_Button_Replot);
@@ -141,17 +151,17 @@ PlotTest::PlotTest() :
   m_box0.pack_start(m_box1, Gtk::PACK_EXPAND_WIDGET, 5);
   m_box0.pack_start(m_sb, Gtk::PACK_SHRINK, 5);
   m_box0.pack_start(m_Button_Draw, Gtk::PACK_SHRINK, 5);
-  
+
   m_box0.pack_start(m_Button_Replot, Gtk::PACK_SHRINK, 5);
-  
+
   m_box_top.pack_start(m_box0);
-  
+
 
   set_border_width(0);
 //  show_all();
-    m_plot.canvas()->signal_button_press_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_press));
-    m_plot.canvas()->signal_button_release_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_release));
-    m_plot.canvas()->signal_motion_notify_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_move));
+    main_box.signal_button_press_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_press));
+    main_box.signal_button_release_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_release));
+    main_box.signal_motion_notify_event().connect(sigc::mem_fun(*this,&PlotTest::on_m_move));
   //m_plot.signal_plot_mouse_press().
   //  connect(sigc::mem_fun(*this,&PlotTest::on_plot_mouse_press));
   //m_plot.signal_plot_mouse_release().
@@ -195,35 +205,32 @@ PlotTest::PlotTest() :
   //myCurve3= Glib::RefPtr<PlotMM::Curve>(new PlotMM::Curve("c4"));
   //myCurve4= Glib::RefPtr<PlotMM::Curve>(new PlotMM::Curve("c5"));
     myCurve1->set_curve_style(PlotMM::CURVE_LINES);
-    myCurve1->paint()->set_pen_color(Gdk::Color("blue"));
 
     //m_plot.add_curve(myCurve0);
     //m_plot.add_curve(myCurve2);
 
-
 //  m_plot.add_curve(myCurve3,PlotMM::AXIS_BOTTOM,PlotMM::AXIS_RIGHT);
 //  m_plot.add_curve(myCurve4,PlotMM::AXIS_TOP);
-  m_plot.add_curve(myCurve1);
+	m_plot.add_curve(myCurve1);
 
-    GdkColor g_red;
-    myCurve1->paint()->set_pen_color(Gdk::Color("blue"));
-  //myCurve3->paint()->set_pen_color(Gdk::Color("darkgreen"));
-  //myCurve4->paint()->set_pen_color(Gdk::Color("darkred"));
+    myCurve1->paint()->set_pen_color(Gdk::RGBA("#EF2929"));
+  //myCurve3->paint()->set_pen_color(Gdk::RGBA("darkgreen"));
+  //myCurve4->paint()->set_pen_color(Gdk::RGBA("darkred"));
 
     myCurve2->set_curve_style(PlotMM::CURVE_LINES);
-    myCurve2->paint()->set_pen_color(Gdk::Color("green"));
-    myCurve2->paint()->set_brush_color(Gdk::Color("blue"));
+    myCurve2->paint()->set_pen_color(Gdk::RGBA("green"));
+    myCurve2->paint()->set_brush_color(Gdk::RGBA("blue"));
 
     myCurve2->symbol()->set_style(PlotMM::SYMBOL_R_TRIANGLE);
     myCurve2->symbol()->set_size(20);
-    myCurve2->symbol()->paint()->set_pen_color(Gdk::Color("red"));
-    myCurve2->symbol()->paint()->set_brush_color(Gdk::Color("yellow"));
+    myCurve2->symbol()->paint()->set_pen_color(Gdk::RGBA("red"));
+    myCurve2->symbol()->paint()->set_brush_color(Gdk::RGBA("yellow"));
 
 
   // some special settings for our error curve
-  myCurve0->symbol()->paint()->set_pen_color(Gdk::Color("red"));
-  myCurve0->error_paint()->set_pen_color(Gdk::Color("orange"));
-    myCurve0->error_paint()->set_brush_color(Gdk::Color("blue"));
+  myCurve0->symbol()->paint()->set_pen_color(Gdk::RGBA("red"));
+  myCurve0->error_paint()->set_pen_color(Gdk::RGBA("orange"));
+    myCurve0->error_paint()->set_brush_color(Gdk::RGBA("blue"));
   myCurve0->symbol()->set_style(PlotMM::SYMBOL_ELLIPSE);
   myCurve0->symbol()->set_size(10);
   myCurve0->set_curve_style(PlotMM::CURVE_NONE);
@@ -306,12 +313,12 @@ void PlotTest::set_y1_label(char* str)
 
 //void PlotTest::on_plot_mouse_press(int x,int y, GdkEventButton *ev)
 bool PlotTest::on_m_press(GdkEventButton *ev)
-{	
+{
 	int x, y;
 	m_plot.canvas()->get_pointer(x, y);
     if (ev->button>0 && ev->button<4) button_[ev->button-1]= true;
     print_coords(mx_=x,my_=y);
-
+std::cout << x << "  " <<y << std::endl;
     if ((ev->button==1)) {  // zoom
 
         m_plot.scale(PlotMM::AXIS_BOTTOM)->set_autoscale(false);
@@ -326,6 +333,7 @@ bool PlotTest::on_m_press(GdkEventButton *ev)
         set_y1_range(y1_range_begin, y1_range_end, y1_autoscale);
         set_y2_range(y2_range_begin, y2_range_end, y2_autoscale);
         set_x2_range(x2_range_begin, x2_range_end, x2_autoscale);
+        m_plot.draw_expanded = FALSE;
         m_plot.replot();
     }
     return true;
@@ -334,6 +342,8 @@ bool PlotTest::on_m_press(GdkEventButton *ev)
 //void PlotTest::on_plot_mouse_release(int x,int y, GdkEventButton *ev)
 bool PlotTest::on_m_release(GdkEventButton *ev)
 {
+
+//printf("button pressed %d\n",ev->button);
 	int x, y;
 	m_plot.canvas()->get_pointer(x, y);
     if (ev->button>0 && ev->button<4) button_[ev->button-1]= false;
@@ -421,7 +431,6 @@ for(int i=0; i<300; i++)
     m_plot.canvas()->get_window()->get_geometry(winx, winy, winw, winh);
 //    printf("PlotCanvas window_ x, y, width and height are %d   %d   %d   %d\n", winx, winy, winw, winh);
     Cairo::RefPtr<Cairo::Context> gc_local;
-// create_cairo_context() (below) is now deprecated (Gtk 3.22).  Do not use in new code
     gc_local = m_plot.canvas()->get_window()->create_cairo_context();
 // Glib::RefPtr<Gdk::Pixbuf> pixbuf_ = Gdk::Pixbuf::create (m_plot.canvas()->get_window(), 0, 0, winw, winh);
 
@@ -466,7 +475,7 @@ int main(int argc, char** argv)
 {
   Gtk::Main kit (argc,argv);
   PlotTest My_PlotTest;
- 
+
 
   Gtk::Main::run(My_PlotTest);
 

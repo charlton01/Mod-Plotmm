@@ -25,7 +25,13 @@
 
 #include <sys/time.h>
 
+#include <fstream>
+#include <iostream>
+#include <sstream>
+
 using namespace PlotMM;
+using std::istream;
+using std::iostream;
 
 
 bool TestArea::on_draw(const Cairo::RefPtr<Cairo::Context> &cr)
@@ -172,7 +178,7 @@ void PlotLabel::update_()
     }
     tainted_= false;
 
-    
+
 }
 
 /*! Rotate the text label by 90 degree to the right
@@ -228,6 +234,7 @@ Glib::RefPtr<Gdk::Pixbuf> PlotLabel::rotate_left_(Glib::RefPtr<Gdk::Pixbuf> p)
 PlotCanvas::PlotCanvas(Plot* pp) :
     window_(0),
     replotting_(false)
+
 {
   set_app_paintable();
   Gdk::RGBA m_Color;
@@ -237,13 +244,8 @@ PlotCanvas::PlotCanvas(Plot* pp) :
   m_Color.set_blue(0.0);
   m_Color.set_alpha(1.0); //opaque
 
-  //override_background_color(m_Color);
-  //colormap->alloc_color(black_);
-  //colormap->alloc_color(white_);
-  //colormap->alloc_color(grey_);
-
   plot_ptr = pp;
-
+/*
   add_events(Gdk::EXPOSURE_MASK|
 	     Gdk::BUTTON_PRESS_MASK|
 	     Gdk::BUTTON_RELEASE_MASK|
@@ -251,7 +253,7 @@ PlotCanvas::PlotCanvas(Plot* pp) :
 	     Gdk::POINTER_MOTION_HINT_MASK|
 	     Gdk::ENTER_NOTIFY_MASK|
 	     Gdk::LEAVE_NOTIFY_MASK);
-
+*/
 }
 
 
@@ -259,31 +261,6 @@ PlotCanvas::~PlotCanvas()
 {
 }
 
-/*
-bool PlotCanvas::on_button_press_event(GdkEventButton* event)
-{
-    int x,y;
-    get_pointer(x,y);
-    signal_plot_mouse_press(x,y,event);
-    return true;
-}
-
-bool PlotCanvas::on_button_release_event(GdkEventButton* event)
-{
-    int x,y;
-    get_pointer(x,y);
-    signal_plot_mouse_release(x,y,event);
-    return true;
-}
-
-bool PlotCanvas::on_motion_notify_event (GdkEventMotion* event)
-{
-    int x,y;
-    get_pointer(x,y);
-    signal_plot_mouse_move(x,y,event);
-    return true;
-}
-*/
 void PlotCanvas::on_realize()
 {
   // We need to call the base on_realize()
@@ -292,12 +269,6 @@ void PlotCanvas::on_realize()
   // Now we can allocate any additional resources we need
   window_= get_window();
 
-  // gc_ = Gdk::GC::create(window_);
-  //  We are using a cairo context, not a GC
-  //window_->set_background(grey_);
-  //  I don't think we need to clear the window; done by cairo when needed
- // window_->clear();
- //  I could set the color and paint the background with Cairo
 }
 
 //! Clear the plot canvas (where the curves are drawn
@@ -352,7 +323,10 @@ Plot::Plot() :
     title_(this,Gtk::ORIENTATION_HORIZONTAL),
     canvas_(this),
     curveidx_(-1),
-    draw_select_(false)
+    draw_select_(false),
+    draw_expanded(FALSE),
+    draw_bg(FALSE),
+    bg_off(0)
 {
 //    add(m_box1);
 
@@ -368,9 +342,6 @@ Plot::Plot() :
     tickMark_.push_back(new HScale(Gtk::POS_BOTTOM,tickLabel_[1]));
     tickMark_.push_back(new VScale(Gtk::POS_LEFT,tickLabel_[2]));
     tickMark_.push_back(new VScale(Gtk::POS_RIGHT,tickLabel_[3]));
-
-
-
 
     layout_.attach(canvas_,3,4,4,5);
     layout_.attach(title_, 0,7,0,1,Gtk::FILL|Gtk::EXPAND,Gtk::SHRINK);
@@ -405,17 +376,12 @@ Plot::Plot() :
     axisLabel_[1]->font()->set_size(int(fontsize*.9));
     axisLabel_[2]->font()->set_size(int(fontsize*.9));
     axisLabel_[3]->font()->set_size(int(fontsize*.9));
-/*
-    tickLabel_[0]->set_font(this->get_pango_context()->get_font_description());
-    tickLabel_[1]->set_font(this->get_pango_context()->get_font_description());
-    tickLabel_[2]->set_font(this->get_pango_context()->get_font_description());
-    tickLabel_[3]->set_font(this->get_pango_context()->get_font_description());
-*/
 
     tickLabel_[0]->font()->set_size(int(fontsize*.8));
     tickLabel_[1]->font()->set_size(int(fontsize*.8));
     tickLabel_[2]->font()->set_size(int(fontsize*.8));
     tickLabel_[3]->font()->set_size(int(fontsize*.8));
+
 
 }
 
@@ -452,7 +418,7 @@ int Plot::add_curve(const Glib::RefPtr<Curve> &cv,
 */
 
 bool PlotCanvas::on_draw(const Cairo::RefPtr<Cairo::Context>&cr)
-{   
+{
 
     plot_ptr->replot2(cr);
     return true;  //allow signal propagation
@@ -463,11 +429,6 @@ bool Plot::reset_autoscale()
         std::map<int,CurveInfo>::iterator cv;
     int axis;
     bool autoscale= false;
-
-//   int winx, winy, winw, winh;
-//    Glib::RefPtr<Gdk::Window> win_;
-//    win_ = tickMark_[2]->get_window();
-//    win_->get_geometry(winx, winy, winw, winh);
 
 // Note below that tickMark is a vector of *Scale and axis 0-3 are TOP, BOTTOM, LEFTand RIGHT.
 // so if any axis is marked for autoscale, begin_autoscale() is called on that axis
@@ -516,12 +477,10 @@ bool Plot::replot()
 
     if(!draw_select_)
     {
-    // hide and show_all on the Plot will redraw everything and erase the
+    // redraw everything and erase the
     //  drag rectangle, if present.  Causes on_draw() for all widgets.
 
-        hide();
-        show_all();
-
+    queue_draw();
 
     }
 
@@ -533,26 +492,53 @@ bool Plot::replot2(const Cairo::RefPtr<Cairo::Context> &cr)  // This is now only
 {
     std::map<int,CurveInfo>::iterator cv;
 
-
  if (!canvas_.begin_replot()) return true;
 
+Gtk::Allocation allocation = canvas_.get_allocation();
+  const int width = allocation.get_width();
+  const int height = allocation.get_height();
+
+cr->save();
+
+// The following code section is for drawing a background image to the plot window.  The image is created by a
+// background image button in old roast data window.  The image can be toggled on and off by a button.
+//**********************
+
+    std::ifstream infile("/Applications/Drumroaster/bg_1.png");
+    if (infile.good() && draw_bg && !draw_expanded) {
+
+        image_ptr_ = Gdk::Pixbuf::create_from_file ("/Applications/Drumroaster/bg_1.png");
+
+        image_ptr_ = image_ptr_->scale_simple(width, height, Gdk::INTERP_BILINEAR);
 
 
-//    reset_autoscale();
-//  draw to a backing store
-cr->push_group();
+            Cairo::Format format = Cairo::FORMAT_RGB24;
+            if (image_ptr_->get_has_alpha())
+            {
+                format = Cairo::FORMAT_ARGB32;
+            }
 
+         // Create a new ImageSurface
+            Cairo::RefPtr< Cairo::ImageSurface > image_surface_ptr_ = Cairo::ImageSurface::create  (format, image_ptr_->get_width(), image_ptr_->get_height());
+
+            // Create the new Context for the ImageSurface
+            Cairo::RefPtr< Cairo::Context > image_context_ptr_ = Cairo::Context::create (image_surface_ptr_);
+
+            // Draw the image on the new Context
+            Gdk::Cairo::set_source_pixbuf (image_context_ptr_, image_ptr_, 0.0, 0.0);
+            image_context_ptr_->paint();
+
+            cr->set_source (image_surface_ptr_, bg_off, 0.0);
+
+            cr->paint_with_alpha(0.3);
+    }
+//**********************
 
     for (cv= plotDict_.begin(); cv!=plotDict_.end(); ++cv) {
 	if (!cv->second.curve->enabled()) continue;
 	PlotAxisID xaxis= cv->second.xaxis;
 	PlotAxisID yaxis= cv->second.yaxis;
-//     int cst = cv->second.curve->curve_style();
-	// tickMark[xaxis]->scale_map() returns the DoubleIntMap for that axis.
-	//  What sets the DoubleIntMap parameters?  They are set
-	// by its constructor, redraw() and other things.
-//    cv->second.curve->paint()->set_pen_GC(canvas_.gc());
-//    cv->second.curve->paint()->set_brush_GC(canvas_.gc());
+
 //    Make sure that the transform matrix is set up properly
     int winx, winy, winw, winh;
 
@@ -561,46 +547,26 @@ cr->push_group();
     tickMark_[yaxis]->get_window()->get_geometry(winx, winy, winw, winh);
     tickMark_[yaxis]->scale_map().set_int_range(winh-1, 0);
 
-
-
 //Bitter experience has shown that it is best not to store the Cairo::Context.  Pass it as argument
 
     cv->second.curve->draw(cr, canvas_.get_window(), tickMark_[xaxis]->scale_map(), tickMark_[yaxis]->scale_map());
 
     }
 
-//  restore the image from the backing store after saving a copy to pattern_
-pattern_.clear();
-cr->pop_group_to_source();
-pattern_ = cr->get_source();
-//cr->set_source(pattern_);
-cr->paint();
+cr->restore();
+
+if (draw_select_)draw_selection_(cr);
+
 canvas_.end_replot();
+
+
 
 return true;
 
 
 }
 
-/*
-//! Return the signal owned by plot canvas
-sigc::signal3<void,int,int,GdkEventButton*> Plot::signal_plot_mouse_press()
-{
-    return canvas_.signal_plot_mouse_press;
-}
 
-//! Return the signal owned by plot canvas
-sigc::signal3<void,int,int,GdkEventButton*> Plot::signal_plot_mouse_release()
-{
-    return canvas_.signal_plot_mouse_release;
-}
-
-//! Return the signal owned by plot canvas
-sigc::signal3<void,int,int,GdkEventMotion*> Plot::signal_plot_mouse_move()
-{
-    return canvas_.signal_plot_mouse_move;
-}
-*/
 /*! Set the selection to the given rectangle.  If selection is
  *  enabled, the old rectangle is erased and the new is drawn.  Note
  *  that replot() does not have to be called explicitly.  No other
@@ -611,7 +577,10 @@ void Plot::set_selection(const PlotMM::Rectangle &r)
 //    if (draw_select_) draw_selection_();
 
     select_= r;
-    if (draw_select_) draw_selection_();
+    //hide();
+    //show_all();
+    queue_draw();
+    //if (draw_select_) draw_selection_();
 }
 
 /*! Enable drawing of the selection rectangle.  The geometry can be
@@ -622,9 +591,11 @@ void Plot::set_selection(const PlotMM::Rectangle &r)
  */
 void Plot::enable_selection()
 {
+
     if (draw_select_) return;
     draw_select_= true;
     set_selection(select_);
+    //draw_expanded = TRUE;
 }
 
 /*! Disable drawing of the selection rectangle.  To actually erase the
@@ -634,36 +605,22 @@ void Plot::disable_selection()
 {
     if (!draw_select_) return;
     draw_select_= false;
+    //draw_expanded = FALSE;
 
 }
-
+// this section does not draw anything in newer versions of gtk (3.22.25)  search google with
+// create_cairo_context deprecated
 //! draws the current selection rectangle on the plot canvas.
-void Plot::draw_selection_()
+void Plot::draw_selection_(const Cairo::RefPtr<Cairo::Context> &gc_)
 {
+// do not draw the zoom rectangle if its dimensions are less than 3x3
+  if ( select_.get_abs_width() <=3 || select_.get_abs_height() <=3) return;
 
- if ( select_.get_abs_width() <=0 || select_.get_abs_height() <=0) return;
-
-
-    Paint paint;
-    Cairo::RefPtr<Cairo::Context> gc_ = canvas()->get_window()->create_cairo_context();
+    draw_expanded = TRUE;
 
     int winx, winy, winw, winh;
     canvas_.get_window()->get_geometry(winx, winy, winw, winh);
 
-
-//  clear the screen to a background color and redraw the last canvas image if exists.
-        gc_->set_source_rgb(0.9,0.9,0.9);
-        
-        gc_->paint();
-        
-        if(pattern_)
-        {	
-            gc_->set_source(pattern_);
-            gc_->paint();
-            
-        }
-// draw a rectangle on the image
-    gc_->save();
     gc_->set_source_rgb(0.7,0.4,0.0);
 
     gc_->rectangle 	(select_.get_x_min(),
@@ -672,8 +629,5 @@ void Plot::draw_selection_()
 					 select_.get_abs_height());
 
     gc_->stroke();
-	
-    gc_->restore();
 
 }
-

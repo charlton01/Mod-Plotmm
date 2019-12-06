@@ -16,7 +16,8 @@
 #if (GTKMM_MAJOR_VERSION == 2 && GTKMM_MINOR_VERSION > 4)
 #include <glibmm/objectbase.h>
 #else
-#include <sigc++/object.h>
+//#include <sigc++/object.h>
+#include <sigc++/sigc++.h>
 #endif
 
 #include <glibmm/arrayhandle.h>

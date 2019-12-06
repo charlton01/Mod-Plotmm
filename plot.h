@@ -47,7 +47,7 @@ class TestArea : public Gtk::DrawingArea
     public:
 
     protected:
-//	virtual bool on_expose_event(GdkEventExpose* event);
+
 	virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
 
     private:
@@ -69,7 +69,7 @@ class PlotLabel : public Gtk::DrawingArea
 	bool enabled() const { return enabled_; }
 
     protected:
-//	virtual bool on_expose_event(GdkEventExpose* event);
+
 	virtual bool on_draw(const Cairo::RefPtr<Cairo::Context> &cr);
 
 	virtual void on_realize();
@@ -98,7 +98,7 @@ class PlotLabel : public Gtk::DrawingArea
 class PlotCanvas : public Gtk::DrawingArea
     {
     public:
-//	PlotCanvas(Plot* pp, Gtk::Widget* w);
+
 	PlotCanvas(Plot* pp);
 	virtual ~PlotCanvas();
 
@@ -106,17 +106,9 @@ class PlotCanvas : public Gtk::DrawingArea
 	virtual void clear();
 	virtual void end_replot();
 
-	//sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_press;
-	//sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_release;
-	//sigc::signal3<void,int,int,GdkEventMotion*> signal_plot_mouse_move;
-
     protected:
     virtual bool on_draw(const Cairo::RefPtr<Cairo::Context>&cr);
 	virtual void on_realize();
-	//virtual bool on_button_press_event(GdkEventButton* event);
-	//virtual bool on_button_release_event(GdkEventButton* event);
-	//virtual bool on_motion_notify_event (GdkEventMotion* event);
-
 
 	Glib::RefPtr<Gdk::Window> window_;
     private:
@@ -172,15 +164,18 @@ class Plot : public Gtk::Frame
 	Scale *scale(PlotAxisID id) { return tickMark_[id]; }
 	PlotLabel *label(PlotAxisID id) { return axisLabel_[id]; }
 
-	//sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_press();
-	//sigc::signal3<void,int,int,GdkEventButton*> signal_plot_mouse_release();
-	//sigc::signal3<void,int,int,GdkEventMotion*> signal_plot_mouse_move();
-
 	void set_selection(const Rectangle &r);
 	Rectangle get_selection() { return select_; }
 	void enable_selection();
 	void disable_selection();
-
+	Rectangle select_;
+	bool draw_expanded;
+	bool draw_bg;
+	PlotCanvas canvas_;
+	Cairo::RefPtr<Cairo::Pattern> pattern_;
+	Glib::RefPtr< Gdk::Pixbuf> image_ptr_;
+    int bg_off;
+    bool draw_select_;
 
     protected:
     Gtk::Box m_box1;
@@ -191,17 +186,14 @@ class Plot : public Gtk::Frame
 	std::vector<ScaleLabels*> tickLabel_;
 	std::vector<PlotLabel*> axisLabel_;
 	PlotLabel title_;
-	PlotCanvas canvas_;
-//	virtual bool on_canvas_expose_event(GdkEventExpose* event);
-	virtual void draw_selection_();
 
+    virtual void draw_selection_(const Cairo::RefPtr<Cairo::Context> &cr);
     private:
-    Cairo::RefPtr<Cairo::Pattern> pattern_;
+
 	int loop;
 	double alpha;
 	int curveidx_;
-	bool draw_select_;
-	Rectangle select_;
+
 	Gdk::Color black_, grey_, white_;
 	struct CurveInfo {
 	    Glib::RefPtr<Curve> curve;

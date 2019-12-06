@@ -18,7 +18,8 @@
 //#if (GTKMM_MAJOR_VERSION == 2 && GTKMM_MINOR_VERSION > 4)
 #include <glibmm/objectbase.h>
 //#else
-#include <sigc++/object.h>
+//#include <sigc++/object.h>
+#include <sigc++/sigc++.h>
 //#endif
 
 #include <glibmm/refptr.h>
@@ -46,8 +47,8 @@ namespace PlotMM {
 	bool operator!=(const Paint &) const;
 	bool operator==(const Paint &) const;
 
-	void set_pen_color(const Gdk::Color &);
-	void set_brush_color(const Gdk::Color &);
+	void set_pen_color(const Gdk::RGBA &);
+	void set_brush_color(const Gdk::RGBA &);
 
 	void set_cr_to_pen(const Cairo::RefPtr<Cairo::Context> &);
 	void set_cr_to_brush(const Cairo::RefPtr<Cairo::Context> &);
@@ -62,7 +63,7 @@ namespace PlotMM {
 
     private:
 
-	Gdk::Color pColor_, bColor_;
+	Gdk::RGBA pColor_, bColor_;
 	int size_, sizeB_;
 	bool filled_;
     };
