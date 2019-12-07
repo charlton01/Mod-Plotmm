@@ -319,14 +319,16 @@ void PlotCanvas::end_replot()
 
 
 Plot::Plot() :
-    layout_(7,9),
-    title_(this,Gtk::ORIENTATION_HORIZONTAL),
-    canvas_(this),
-    curveidx_(-1),
-    draw_select_(false),
+    
     draw_expanded(FALSE),
     draw_bg(FALSE),
-    bg_off(0)
+    title_(this,Gtk::ORIENTATION_HORIZONTAL),
+    canvas_(this),
+    bg_off(0),
+    draw_select_(false),
+    layout_(7,9),
+    curveidx_(-1)
+    
 {
 //    add(m_box1);
 

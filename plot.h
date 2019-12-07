@@ -171,6 +171,7 @@ class Plot : public Gtk::Frame
 	Rectangle select_;
 	bool draw_expanded;
 	bool draw_bg;
+	PlotLabel title_;
 	PlotCanvas canvas_;
 	Cairo::RefPtr<Cairo::Pattern> pattern_;
 	Glib::RefPtr< Gdk::Pixbuf> image_ptr_;
@@ -185,7 +186,7 @@ class Plot : public Gtk::Frame
 	std::vector<Scale*> tickMark_;
 	std::vector<ScaleLabels*> tickLabel_;
 	std::vector<PlotLabel*> axisLabel_;
-	PlotLabel title_;
+	
 
     virtual void draw_selection_(const Cairo::RefPtr<Cairo::Context> &cr);
     private:

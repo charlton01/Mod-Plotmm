@@ -71,6 +71,7 @@ public:
 
 protected:
 
+    int mx_,my_;
     double x1_range_begin;
     double x1_range_end;
     bool x1_autoscale;
@@ -89,7 +90,7 @@ protected:
 
   PlotMM::Rectangle zoomRect_;
   bool button_[3];
-  int mx_,my_;
+  
   // Child widgets
   Gtk::EventBox main_box;
   Gtk::Button m_Button_Draw, m_Button_Replot;
@@ -110,7 +111,8 @@ protected:
 };
 
 PlotTest::PlotTest() :
-  mx_(-1000),my_(-1000),
+	m_plot(),
+	mx_(-1000),my_(-1000),
     x1_range_begin(0),
     x1_range_end(1200),
     x1_autoscale(false),
@@ -123,11 +125,10 @@ PlotTest::PlotTest() :
     y2_range_begin(0),
     y2_range_end(600),
     y2_autoscale(false),
-  m_sb(),
-  m_plot(),
-  loop(0),
   m_Button_Draw("Draw Cairo Image"),
-  m_Button_Replot("Call Replot")
+  m_Button_Replot("Call Replot"),
+  m_sb(),
+  loop(0)
 
 {
     add(main_box);
@@ -150,9 +151,9 @@ PlotTest::PlotTest() :
   // box0
   m_box0.pack_start(m_box1, Gtk::PACK_EXPAND_WIDGET, 5);
   m_box0.pack_start(m_sb, Gtk::PACK_SHRINK, 5);
-  m_box0.pack_start(m_Button_Draw, Gtk::PACK_SHRINK, 5);
+  //m_box0.pack_start(m_Button_Draw, Gtk::PACK_SHRINK, 5);
 
-  m_box0.pack_start(m_Button_Replot, Gtk::PACK_SHRINK, 5);
+  //m_box0.pack_start(m_Button_Replot, Gtk::PACK_SHRINK, 5);
 
   m_box_top.pack_start(m_box0);
 
@@ -236,8 +237,11 @@ PlotTest::PlotTest() :
   myCurve0->set_curve_style(PlotMM::CURVE_NONE);
 
   // of cource we also need data for the curves to show
-  double x1[] = {0,25,1200,100,0,200,290}; double x2[] = {0,40,60};
-  double y1[] = {0,10,80,600, 170, 0,290}; double y2[] = {10,15,20}; double y3[] = {4,5,4};
+  double x1[] = {0,25,1200,100,0,200,290}; 
+  //double x2[] = {0,40,60};
+  double y1[] = {0,10,80,600, 170, 0,290}; 
+  //double y2[] = {10,15,20}; 
+  //double y3[] = {4,5,4};
   double X1[] = {30.0,40.0,50.0,30.0,40.0,50.0,50.0};
   double Y1[] = {50.0,60.0,10.0,100.0,30.0,40.0,60.0};
 
@@ -248,11 +252,11 @@ PlotTest::PlotTest() :
   //myCurve4->set_data(x1,y3,3);
 
   // Connect the clicked signal of the Draw button
-    m_Button_Draw.signal_clicked().connect(sigc::mem_fun(*this,
-              &PlotTest::do_the_plot ));
+    //m_Button_Draw.signal_clicked().connect(sigc::mem_fun(*this,
+     //         &PlotTest::do_the_plot ));
 
-    m_Button_Replot.signal_clicked().connect(sigc::mem_fun(*this,
-              &PlotTest::replot ));
+    //m_Button_Replot.signal_clicked().connect(sigc::mem_fun(*this,
+      //        &PlotTest::replot ));
 
   show_all();
 
@@ -318,7 +322,7 @@ bool PlotTest::on_m_press(GdkEventButton *ev)
 	m_plot.canvas()->get_pointer(x, y);
     if (ev->button>0 && ev->button<4) button_[ev->button-1]= true;
     print_coords(mx_=x,my_=y);
-std::cout << x << "  " <<y << std::endl;
+//std::cout << x << "  " <<y << std::endl;
     if ((ev->button==1)) {  // zoom
 
         m_plot.scale(PlotMM::AXIS_BOTTOM)->set_autoscale(false);
@@ -371,6 +375,7 @@ bool PlotTest::on_m_release(GdkEventButton *ev)
         m_plot.replot();
         return true;
     }
+    return false;
 }
 
 
@@ -407,6 +412,11 @@ void PlotTest::replot()
 {
 	m_plot.replot();
 }
+
+// This code should not be used.  All drawing has been moved to the on_draw() procedures of Plot:: and Plot::Canvas::/
+// create_cairo_context has been deprecated.  If you want to draw something, it has to be drawn by the m_plot object itself.
+//
+
 
 void PlotTest::do_the_plot()
 {
@@ -462,7 +472,7 @@ for(int i=0; i<300; i++)
   gc_local->line_to(width, yc);
   gc_local->stroke();
 
- //   gc_local->show_page();
+    //gc_local->show_page();
 
 }
 
