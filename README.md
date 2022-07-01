@@ -18,6 +18,8 @@ PlotMM Widget Library
 
 Information regarding the changes made to the original code can be obtained from Jim Charlton, charltn@gmail.com
 
-The package provided is configured for compilation on the Linux (Ubuntu) OS.  I am using version 14.01.1 of Ubuntu. The Makefile has two targets (debug and release).  "debug" will produce a small test program, bin/Debug/myprog, which will test the code in a simple program.  The code that is executed is in main.cc.  The "release" target will generate the library bin/Release/plotmm.so that you can link it to your code as a library.
+The package provided is configured for compilation on the Linux (Ubuntu) OS.  I am using version 14.01.1 of Ubuntu. The Makefile has two targets (debug and release).  "debug" will produce a small test program, bin/Debug/myprog, which will test the code in a simple program.  The code that is executed is in main.cc.  The "release" target will generate the library bin/Release/plotmm.so that you can link it to your code as a librarylibgtkmm-3.0-dev.
 
 I have also installed gtkmm/osx on the MAC OS X (version 10.10) and this code also compiles on that system.  Information on compling on MAC OS X can be obtained by writing to me (charltn@gmail.com).  On December 6, 2019, the code was compiled on MacOS 10.15 (Catalina) without issues.
+
+The current date is June 30, 2022.  The code still compiles on Ubuntu 22.04.  To compile, install the gtkmm libraries with 'apt install libgtkmm-3.0-dev' (as root user) then run 'make release' or 'make debug'.
